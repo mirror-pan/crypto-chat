@@ -1,9 +1,20 @@
 # crypto-chat — Development Plan
 
-> **Version v0.2** · 2026-11-25 · Owner: mirror-pan · Repo: `mirror-pan/crypto-chat`
+> **Version v0.3** · 2026-11-25 · Owner: mirror-pan · Repo: `mirror-pan/crypto-chat`
 >
 > 这份文档是项目的 **construction blueprint（施工蓝图）**，不是宣传文案。
 > 规则：每一个 milestone 完成后，必须回来更新状态栏和验收结果。没有写进这里的决策，不算数。
+
+---
+
+## 0a. v0.3 修订说明（相对 v0.2）
+
+| 项目 | v0.2 | v0.3（当前有效） |
+|---|---|---|
+| 网络 | 本地 Anvil 已跑通 | **加 Sepolia 支持**，作为公网验证；本地链保留作日常开发 |
+| 私钥来源 | CLI 参数 `--private-key`（进 shell history） | **支持 `CHAT_PRIVATE_KEY` 环境变量**，CLI 参数仅保留给 Anvil 公开测试 key |
+| 部署文档 | 只有 `TESTING.md`（本地） | 新增 `chat-cli/SEPOLIA.md`，覆盖建钱包 / faucet / 部署 / 收发 / 浏览器验证 |
+| 风险 D6 | "先本地后 Sepolia" | 保持；**切 Sepolia 不是替代本地链，是追加一次公网验证** |
 
 ---
 
@@ -92,6 +103,8 @@ Bob Frontend: render chat bubble
 | D5 | 载荷格式 `[12-byte IV][ciphertext + 16-byte tag]` | AEAD 标准做法；IV 每条消息随机，tag 检测篡改 | 明文拼接 / 固定 IV |
 | D6 | 本地 Anvil 先跑通，再切 Sepolia | 本地零延迟、可反复重置；Sepolia 免费且日志永久记录 | 直接上主网 |
 | D7 | 合约开发用 **Foundry** | 测试用 Solidity 写，速度快，贴合底层 EVM | Hardhat |
+| D8 | 公网上私钥只从 **`CHAT_PRIVATE_KEY` 环境变量**读，`--private-key` 仅用于 Anvil 公开 key | CLI 参数会进 shell history 和 `ps`；测试网 key 必须一次性、专用 | 继续用 CLI 参数传真实 key |
+| D9 | Sepolia 用**公共 RPC 起步**（publicnode），不够稳再换个人 Alchemy/Infura | 零注册成本，几条测试消息足够 | 一开始就付费节点 |
 
 ---
 
@@ -106,7 +119,7 @@ Bob Frontend: render chat bubble
   - [x] `forge create ... --broadcast` — 部署成功，拿到 `Deployed to`
 - **Note**：新电脑上 Anvil 重启后旧部署失效，Phase 2 测试前需要重新 deploy（见 `chat-cli/TESTING.md` §2）。已于 2026-11-25 17:05 在新电脑重部署成功，地址 `0x5FbDB2315678afecb367f032d93F642f64180aa3`，tx `0x28de2dd485b820f0cba0638e3ddfeaf6317bcf8984b38cf99a813ab3111be07e`。
 
-### Phase 2 — Rust CLI & encryption layer 🔧 IN PROGRESS
+### Phase 2 — Rust CLI & encryption layer ✅ DONE
 
 - **Scope**：本地 E2EE + 通过 RPC 把密文中继到 Phase 1 合约。**没有 UI，没有 TS。**
 - **Deliverables**：
@@ -119,10 +132,11 @@ Bob Frontend: render chat bubble
   - [x] Rust stable 已通过 rustup 安装；`Cargo.lock` 已生成（419 packages resolved）
   - [x] 编译错误已修复：补上 `tokio` 依赖 + 3 处 `.map_err(|e| eyre::eyre!(e))`
   - [x] 修复 E0716 临时值借用错误（`ContractCall` 先绑定局部变量再 `.send()`）
-  - [x] **`cargo test` / `cargo build` 复验通过**（2026-11-25 16:54：`2 passed; 0 failed`，build Finished）
+  - [x] **`cargo test` / `cargo build` 复验通过**（2026-11-25 16:54：`2 passed`；21:34 加裸公钥测试后 `3 passed`）
   - [x] 真实闭环：derive pubkey → send → `cast logs` 取 payload → decrypt 成功（2026-11-25 17:14：`[+] Plaintext: Hello Bob, this is E2EE over Ethereum`）
-  - [ ] 真实闭环：derive pubkey → send → 从 event log 取 payload → decrypt
-  - [ ] 切到 Sepolia 测试网
+  - [x] 真实闭环：derive pubkey → send → 从 event log 取 payload → decrypt
+  - [x] 切到 Sepolia 测试网 — **闭环通过**（2026-11-25 21:38）：合约地址 `0x21433635Df276caA6df2cD9F2489321797506cb0`（部署 tx `0x00d09b5bbd9ebda12466f5b5606f27bd6054c4f30420634d8c328bb15de69c80`）；消息 tx `0x733678687b8059026c05a3ba46116d43a84b5b252aa9490d84010d8b76c6758e`；Bob 解密得到 `Hello Bob, this is Sepolia E2EE`。Alice 私钥不进 CLI 参数，Bob 用独立终端持有自己的 key |
+  - [x] 兼容 `cast wallet new --json` 的 64 字节裸 X||Y 公钥格式（新增 `raw_xy_public_key_from_cast_is_accepted` 单测，`cargo test` → 3 passed）
 - **Definition of Done**：
   - [ ] `cargo test` → `2 passed`（`ecdh_roundtrip_succeeds`、`wrong_recipient_key_fails_to_decrypt`）
   - [ ] `cargo run -- send ...` 返回 tx hash
@@ -201,7 +215,7 @@ forge --version
 | Risk | Severity | Current mitigation | Planned fix |
 |---|---|---|---|
 | Static ECDH → 没有前向安全（key 泄露则历史消息全泄） | High | 明确写在文档里，不宣称具备 forward secrecy | Phase 4 后评估 Double Ratchet / ephemeral keys |
-| 私钥经 CLI 参数传入 → 进 shell history | High | 仅用 Anvil 测试 key | Phase 4 改环境变量 / keystore |
+| 私钥经 CLI 参数传入 → 进 shell history | High | 已修：`CHAT_PRIVATE_KEY` 环境变量读取，CLI 参数仅保留给 Anvil 公开 key（D8） | Phase 4 再评估 keystore |
 | RPC provider 看到 IP（metadata leakage） | Medium | 本地 Anvil 阶段无外部 RPC | Phase 4 前评估 VPN / private RPC |
 | 链上密文永久公开；无助记词/密钥则不可恢复 | Medium | 文档警示 | — |
 | Sepolia 测试网可能被重置 / 限速 | Low | 先用本地 Anvil | 使用个人 Alchemy / Infura key |

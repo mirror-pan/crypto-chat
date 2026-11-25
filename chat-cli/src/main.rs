@@ -39,6 +39,23 @@ abigen!(
     ]"#
 );
 
+/// Resolve a signing key from an explicit flag or the CHAT_PRIVATE_KEY env var.
+///
+/// The --private-key flag is retained only for local Anvil testing, where the
+/// keys are publicly known and harmless. On a public network the key must come
+/// from the environment so it never enters shell history or the process list.
+fn resolve_private_key(explicit: Option<String>) -> eyre::Result<String> {
+    if let Some(key) = explicit {
+        return Ok(key);
+    }
+    std::env::var("CHAT_PRIVATE_KEY").map_err(|_| {
+        eyre::eyre!(
+            "no private key supplied: pass --private-key (local Anvil only) or \
+             export CHAT_PRIVATE_KEY=0x... before using a public network"
+        )
+    })
+}
+
 #[derive(Parser)]
 #[command(name = "chat-cli")]
 #[command(about = "Decentralized E2EE chat CLI over Ethereum", long_about = None)]
@@ -51,9 +68,9 @@ struct Cli {
 enum Commands {
     /// Derive your uncompressed public key to share with a peer
     Pubkey {
-        /// Your private key (hex, 0x-prefixed)
+        /// Your private key (hex, 0x-prefixed). Prefer CHAT_PRIVATE_KEY env var on public networks.
         #[arg(long)]
-        private_key: String,
+        private_key: Option<String>,
     },
 
     /// Encrypt a message locally and relay the ciphertext on-chain
@@ -73,9 +90,9 @@ enum Commands {
         /// Deployed Chat.sol contract address
         #[arg(long)]
         contract: String,
-        /// Your private key (hex, 0x-prefixed)
+        /// Your private key (hex, 0x-prefixed). Prefer CHAT_PRIVATE_KEY env var on public networks.
         #[arg(long)]
-        private_key: String,
+        private_key: Option<String>,
     },
 
     /// Decrypt a captured on-chain payload locally (no RPC needed)
@@ -86,9 +103,9 @@ enum Commands {
         /// The on-chain bytes payload (hex, from the event log)
         #[arg(long)]
         payload: String,
-        /// Your private key (hex, 0x-prefixed)
+        /// Your private key (hex, 0x-prefixed). Prefer CHAT_PRIVATE_KEY env var on public networks.
         #[arg(long)]
-        private_key: String,
+        private_key: Option<String>,
     },
 }
 
@@ -98,6 +115,7 @@ async fn main() -> eyre::Result<()> {
 
     match cli.command {
         Commands::Pubkey { private_key } => {
+            let private_key = resolve_private_key(private_key)?;
             let public = crypto::public_key_from_private(&private_key)
                 .map_err(|e| eyre::eyre!(e))?;
             println!("[*] Your uncompressed public key (share this with your peer):");
@@ -112,6 +130,7 @@ async fn main() -> eyre::Result<()> {
             contract,
             private_key,
         } => {
+            let private_key = resolve_private_key(private_key)?;
             println!("[*] Connecting to Ethereum node at {}...", rpc);
             let provider = Provider::<Http>::try_from(rpc.as_str())?;
             let chain_id = provider.get_chainid().await?.as_u64();
@@ -148,6 +167,7 @@ async fn main() -> eyre::Result<()> {
             payload,
             private_key,
         } => {
+            let private_key = resolve_private_key(private_key)?;
             println!("[*] Decrypting payload locally...");
             let payload_bytes = hex::decode(payload.trim_start_matches("0x"))?;
             let plaintext = crypto::decrypt_message(&private_key, &sender_pubkey, &payload_bytes)

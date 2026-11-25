@@ -37,10 +37,20 @@ fn parse_secret_key(private_key_hex: &str) -> Result<SecretKey, String> {
 }
 
 /// Parse a hex-encoded secp256k1 public key.
-/// Both compressed (33 bytes) and uncompressed (65 bytes, `04` prefix) are accepted.
+///
+/// Three encodings are accepted:
+///   - compressed: 33 bytes, `02`/`03` prefix
+///   - uncompressed: 65 bytes, `04` prefix (what `public_key_from_private` emits)
+///   - raw X||Y coordinates: 64 bytes, no prefix (what `cast wallet new --json` emits
+///     in its `public_key` field). We normalise it by prepending `04`.
 fn parse_public_key(public_key_hex: &str) -> Result<PublicKey, String> {
-    let bytes = hex::decode(clean_hex(public_key_hex))
+    let mut bytes = hex::decode(clean_hex(public_key_hex))
         .map_err(|e| format!("invalid public key hex: {}", e))?;
+
+    if bytes.len() == 64 {
+        bytes.insert(0, 0x04);
+    }
+
     PublicKey::from_slice(&bytes).map_err(|e| format!("invalid secp256k1 public key: {}", e))
 }
 
@@ -150,6 +160,19 @@ mod tests {
         let decrypted = decrypt_message(BOB_SK, &alice_pub, &payload).unwrap();
 
         assert_eq!(decrypted, "hello from alice");
+    }
+
+    #[test]
+    fn raw_xy_public_key_from_cast_is_accepted() {
+        // `cast wallet new --json` emits 64-byte X||Y without the 04 prefix.
+        let uncompressed = public_key_from_private(BOB_SK).unwrap();
+        let raw_xy = uncompressed.trim_start_matches("04");
+
+        let payload = encrypt_message(ALICE_SK, raw_xy, "hello raw xy").unwrap();
+        let alice_pub = public_key_from_private(ALICE_SK).unwrap();
+        let decrypted = decrypt_message(BOB_SK, &alice_pub, &payload).unwrap();
+
+        assert_eq!(decrypted, "hello raw xy");
     }
 
     #[test]
