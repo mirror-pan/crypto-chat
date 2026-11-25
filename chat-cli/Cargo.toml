@@ -1,0 +1,23 @@
+[package]
+name = "chat-cli"
+version = "0.1.0"
+edition = "2021"
+description = "CLI client with ECDH + AES-256-GCM encryption for the crypto-chat protocol"
+
+[dependencies]
+# Cryptography: secp256k1 for ECDH, sha2 to derive a symmetric key, aes-gcm for AEAD
+secp256k1 = { version = "0.28", features = ["global-context"] }
+sha2 = "0.10"
+aes-gcm = "0.10"
+rand = "0.8"
+hex = "0.4"
+
+# Async runtime required by #[tokio::main]
+tokio = { version = "1", features = ["full"] }
+
+# Ethereum interaction
+ethers = { version = "2.0", features = ["rustls"] }
+
+# CLI parsing and error handling
+clap = { version = "4", features = ["derive"] }
+eyre = "0.6"
