@@ -1,9 +1,25 @@
 # crypto-chat — Development Plan
 
-> **Version v0.3** · 2026-11-25 · Owner: mirror-pan · Repo: `mirror-pan/crypto-chat`
+> **Version v0.4** · 2026-11-26 · Owner: mirror-pan · Repo: `mirror-pan/crypto-chat`
 >
 > 这份文档是项目的 **construction blueprint（施工蓝图）**，不是宣传文案。
 > 规则：每一个 milestone 完成后，必须回来更新状态栏和验收结果。没有写进这里的决策，不算数。
+
+---
+
+## 0b. v0.4 修订说明（相对 v0.3）
+
+| 项目 | v0.3 | v0.4（当前有效） |
+|---|---|---|
+| 登录方式 | 终端 `export CHAT_PRIVATE_KEY` | **图形登录门**：私钥经一次 IPC 进 Rust 内存，界面立即清空；env 仅作兼容回退 |
+| 联系人 | 硬编码 Bob / Alice / Carol（含 demo 占位） | **链上公钥注册表 + 自动发现**：`registerPublicKey(bytes)`，按地址查公钥；demo 联系人删除 |
+| 多用户 | 单账户 | 支持多账户：每个账户登录即注册公钥，按地址互加联系人 |
+| 合约 | 只有 MessageSent 事件 | 新增 `publicKeys` mapping + `PublicKeyRegistered` 事件，**需重新部署**；新地址写入 `chain.rs::DEFAULT_CONTRACT` |
+| 本地缓存 | 无 | 只缓存公开联系人数据（地址+公钥）到 localStorage；私钥永不落盘 |
+| 文档 | — | 新增 `chat-desktop/REGISTRY.md`（部署 + 多账户测试流程） |
+
+**关键设计约束**：Solidity 合约用 `keccak256(pubkey)` 校验公钥确实属于 `msg.sender`，
+所以任何账户都无法注册他人的公钥。地址不可逆推公钥，因此注册表是多用户收发的前置条件。
 
 ---
 
@@ -215,7 +231,9 @@ forge --version
 | Risk | Severity | Current mitigation | Planned fix |
 |---|---|---|---|
 | Static ECDH → 没有前向安全（key 泄露则历史消息全泄） | High | 明确写在文档里，不宣称具备 forward secrecy | Phase 4 后评估 Double Ratchet / ephemeral keys |
-| 私钥经 CLI 参数传入 → 进 shell history | High | 已修：`CHAT_PRIVATE_KEY` 环境变量读取，CLI 参数仅保留给 Anvil 公开 key（D8） | Phase 4 再评估 keystore |
+| 私钥经 CLI 参数传入 → 进 shell history | High | 已修：图形登录一次 IPC 进 Rust 内存，界面立即清空；env 仅兼容回退（v0.4） | Phase 4 keystore + 启动密码 |
+| 私钥在终端环境变量 → 进 `ps` / `/proc` | Medium | 已修：桌面端不再依赖 env（v0.4） | 同上 |
+| 公钥无法从地址反推 → 多用户发消息受阻 | High | 已修：链上注册表 + 自动发现（v0.4），合约校验 key 归属 | 重新部署合约后生效 |
 | RPC provider 看到 IP（metadata leakage） | Medium | 本地 Anvil 阶段无外部 RPC | Phase 4 前评估 VPN / private RPC |
 | 链上密文永久公开；无助记词/密钥则不可恢复 | Medium | 文档警示 | — |
 | Sepolia 测试网可能被重置 / 限速 | Low | 先用本地 Anvil | 使用个人 Alchemy / Infura key |
